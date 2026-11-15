@@ -47,7 +47,7 @@ main{padding:0 12px}
 .item.show-img .img-container { display: flex; }
 .img-preview { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: transform 0.2s ease; position: relative; z-index: 1; }
 .img-preview:hover { transform: scale(6); z-index: 9999; box-shadow: 0 10px 30px rgba(0,0,0,0.6); transform-origin: top right; }
-.del-img-btn { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
+.del-img-btn { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; position: relative; z-index: 10000; }
 .del-img-btn:hover { background: #dc2626; color: #fff; }
 
 .foot{position:fixed;bottom:0;left:0;right:0;background:#fff;padding:8px 12px;padding-bottom:calc(8px + env(safe-area-inset-bottom));box-shadow:0 -2px 12px rgba(0,0,0,.09);display:flex;gap:8px;z-index:20}
@@ -74,6 +74,7 @@ main{padding:0 12px}
     <h1>قائمة التفتيش اليومية</h1>
     <button class="icon" id="syncNow" title="مزامنة">⟳</button>
     <button class="icon" id="cfgBtn" title="الإعدادات">⚙</button>
+    <button class="icon" id="finishBtn" title="إنهاء وتصفير التفتيش" style="background:#fee2e2;color:#dc2626;border-color:#fca5a5;">🗑️</button>
   </div>
   <div class="meta">
     <input type="date" id="dateInput">
@@ -660,6 +661,24 @@ if ('serviceWorker' in navigator) {
       .catch((err) => console.warn('SW failed', err));
   });
 }
+/* ============ 10) زر إنهاء التفتيش وتصفير الشاشة ============ */
+document.getElementById('finishBtn').addEventListener('click', async () => {
+  if (!confirm('هل أنت متأكد من إنهاء التفتيش؟\nسيتم مسح الشاشة للبدء من جديد (لن تُمسح البيانات المحفوظة في السحابة).')) {
+    return;
+  }
+
+  setSync('جارٍ حفظ البيانات قبل التصفير...');
+  await sync(false); 
+
+  state.items = {}; 
+  state.inspector = '';
+  document.getElementById('inspector').value = '';
+  persist(); 
+
+  buildUI();
+  updateCounts();
+  setSync('تم إنهاء التفتيش وتصفير الشاشة. جاهز لتفتيش جديد ✓');
+});
 </script>
 </body>
 </html>
