@@ -378,7 +378,17 @@ async function sync(manual){
   try{
     const remote = await pull(state.day);
     const rmap = {};
-    remote.forEach(r=> rmap[r.item_id] = r);
+    let remoteInspector = '';
+    
+    remote.forEach(r=> {
+      rmap[r.item_id] = r;
+      if (r.inspector) remoteInspector = r.inspector;
+    });
+
+    if (remoteInspector && remoteInspector !== state.inspector) {
+      state.inspector = remoteInspector;
+      document.getElementById('inspector').value = state.inspector;
+    }
 
     const toPush = [];
 
@@ -388,18 +398,22 @@ async function sync(manual){
       const lu = l.u || 0;
       const ru = r ? Date.parse(r.updated_at) : 0;
 
+      // سحب البيانات من السحابة (بما فيها الصورة)
       if(r && ru > lu && !l.dirty){
         l.s = r.status || '';
         l.n = r.note  || '';
+        l.img = r.image_url || ''; // سطر الصورة
         l.u = ru;
-      } else if(l.dirty || (!r && (l.s || l.n))){
+      } 
+      // إرسال البيانات إلى السحابة (بما فيها الصورة)
+      else if(l.dirty || (!r && (l.s || l.n || l.img))){
         toPush.push({
           day: state.day,
           item_id: id,
           status: l.s || null,
           note: l.n || null,
           inspector: state.inspector || null,
-          image_url: l.img || null, // <--- أضف هذا السطر هنا
+          image_url: l.img || null, // سطر الصورة
           updated_at: new Date(lu || Date.now()).toISOString()
         });
       }
@@ -407,7 +421,13 @@ async function sync(manual){
 
     remote.forEach(r=>{
       if(!state.items[r.item_id]){
-        state.items[r.item_id] = { s:r.status||'', n:r.note||'', u:Date.parse(r.updated_at), dirty:false };
+        state.items[r.item_id] = { 
+          s: r.status || '', 
+          n: r.note || '', 
+          img: r.image_url || '', 
+          u: Date.parse(r.updated_at), 
+          dirty: false 
+        };
       }
     });
 
