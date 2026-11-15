@@ -36,8 +36,19 @@ main{padding:0 12px}
 .b.na.on{background:var(--na);border-color:var(--na);color:#fff}
 .b.note-t{font-size:16px}
 .b.note-t.on{background:#fef3c7;border-color:#fcd34d}
+.b.cam-t{font-size:16px}
+.b.cam-t.on{background:#e0f2fe;border-color:#7dd3fc}
 .note{display:none;width:100%;margin-top:9px;border:1px solid var(--line);border-radius:10px;padding:9px;font-family:inherit;font-size:14px;resize:vertical;min-height:62px;background:#fbfdfe}
 .item.show-note .note{display:block}
+
+/* تنسيقات الصورة المصغرة والتكبير وزر الحذف */
+.img-container { display: none; gap: 10px; align-items: center; margin-top: 9px; }
+.item.show-img .img-container { display: flex; }
+.img-preview { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: transform 0.2s ease; position: relative; z-index: 1; }
+.img-preview:hover { transform: scale(6); z-index: 9999; box-shadow: 0 10px 30px rgba(0,0,0,0.6); transform-origin: top right; }
+.del-img-btn { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
+.del-img-btn:hover { background: #dc2626; color: #fff; }
+
 .foot{position:fixed;bottom:0;left:0;right:0;background:#fff;padding:8px 12px;padding-bottom:calc(8px + env(safe-area-inset-bottom));box-shadow:0 -2px 12px rgba(0,0,0,.09);display:flex;gap:8px;z-index:20}
 .foot button{flex:1;border:none;border-radius:11px;padding:13px;font-family:inherit;font-size:14.5px;font-weight:800;cursor:pointer}
 #exportBtn{background:#0f766e;color:#fff}
@@ -53,14 +64,6 @@ main{padding:0 12px}
 #cfgSave{background:#0f766e;color:#fff}
 #cfgClose{background:#e2e8f0;color:#0f172a}
 .hint{font-size:12px;color:#64748b;line-height:1.6;margin-top:14px}
-.b.cam-t{font-size:16px}
-.b.cam-t.on{background:#e0f2fe;border-color:#7dd3fc}
-.img-container { display: none; gap: 10px; align-items: center; margin-top: 9px; }
-.item.show-img .img-container { display: flex; }
-.img-preview { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: transform 0.2s ease; position: relative; z-index: 1; }
-.img-preview:hover { transform: scale(6); z-index: 9999; box-shadow: 0 10px 30px rgba(0,0,0,0.6); transform-origin: top right; }
-.del-img-btn { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
-.del-img-btn:hover { background: #dc2626; color: #fff; }
 </style>
 </head>
 <body>
@@ -105,7 +108,6 @@ main{padding:0 12px}
   </div>
 </div>
 
-<script src="./xlsx.bundle.js"></script>
 <script>
 /* ============ 1) بيانات القائمة ============ */
 const SECTIONS = [
@@ -185,7 +187,7 @@ function persist(){
   }
 }
 function ensure(id){
-  if(!state.items[id]) state.items[id] = { s:'', n:'', u:0, dirty:false };
+  if(!state.items[id]) state.items[id] = { s:'', n:'', img:'', u:0, dirty:false };
   return state.items[id];
 }
 function touch(rec){ rec.u = Date.now(); rec.dirty = true; persist(); }
@@ -236,11 +238,22 @@ function buildUI(){
 function updateItem(id){
   const el = listEl.querySelector('.item[data-id="'+id+'"]');
   if(!el) return;
-  const rec = state.items[id] || { s:'', n:'' };
+  const rec = state.items[id] || { s:'', n:'', img:'' };
   el.querySelectorAll('.b[data-v]').forEach(b=> b.classList.toggle('on', b.dataset.v === rec.s));
   const ta = el.querySelector('.note');
   if(ta.value !== (rec.n || '')) ta.value = rec.n || '';
   if(rec.n) el.classList.add('show-note');
+
+  // التعامل مع الصورة
+  if (rec.img) {
+    el.classList.add('show-img');
+    const imgEl = el.querySelector('.img-preview');
+    if(imgEl) imgEl.src = rec.img;
+    el.querySelector('.cam-t').classList.add('on');
+  } else {
+    el.classList.remove('show-img');
+    el.querySelector('.cam-t').classList.remove('on');
+  }
 }
 
 function refreshAll(){
@@ -389,7 +402,7 @@ async function sync(manual){
     
     remote.forEach(r=> {
       rmap[r.item_id] = r;
-      if (r.inspector) remoteInspector = r.inspector;
+      if (r.inspector) remoteInspector = r.inspector; 
     });
 
     if (remoteInspector && remoteInspector !== state.inspector) {
@@ -405,22 +418,19 @@ async function sync(manual){
       const lu = l.u || 0;
       const ru = r ? Date.parse(r.updated_at) : 0;
 
-      // سحب البيانات من السحابة (بما فيها الصورة)
       if(r && ru > lu && !l.dirty){
         l.s = r.status || '';
         l.n = r.note  || '';
-        l.img = r.image_url || ''; // سطر الصورة
+        l.img = r.image_url || ''; 
         l.u = ru;
-      } 
-      // إرسال البيانات إلى السحابة (بما فيها الصورة)
-      else if(l.dirty || (!r && (l.s || l.n || l.img))){
+      } else if(l.dirty || (!r && (l.s || l.n || l.img))){
         toPush.push({
           day: state.day,
           item_id: id,
           status: l.s || null,
           note: l.n || null,
           inspector: state.inspector || null,
-          image_url: l.img || null, // سطر الصورة
+          image_url: l.img || null,
           updated_at: new Date(lu || Date.now()).toISOString()
         });
       }
@@ -428,13 +438,7 @@ async function sync(manual){
 
     remote.forEach(r=>{
       if(!state.items[r.item_id]){
-        state.items[r.item_id] = { 
-          s: r.status || '', 
-          n: r.note || '', 
-          img: r.image_url || '', 
-          u: Date.parse(r.updated_at), 
-          dirty: false 
-        };
+        state.items[r.item_id] = { s:r.status||'', n:r.note||'', img:r.image_url||'', u:Date.parse(r.updated_at), dirty:false };
       }
     });
 
@@ -455,10 +459,9 @@ window.addEventListener('focus', ()=> sync(false));
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sync(false); });
 setInterval(()=> sync(false), 45000);
 
-/* ============ 6) التصدير إلى Excel (.xlsx) بتنسيق احترافي ============ */
+/* ============ 6) التصدير إلى Excel (.xlsx) ============ */
 document.getElementById('exportBtn').addEventListener('click', ()=>{
-  // 1) تجميع البيانات
-  const rows = [['القسم','البند','الحالة','ملاحظات','المفتش','التاريخ']];
+  const rows = [['القسم','البند','الحالة','ملاحظات','رابط الصورة','المفتش','التاريخ']];
   SECTIONS.forEach((sec,si)=>{
     sec.items.forEach((t,ii)=>{
       const id = `s${si+1}i${ii+1}`;
@@ -469,6 +472,7 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
         (si+1)+'.'+(ii+1)+' '+t,
         st,
         r.n || '',
+        r.img || '',
         state.inspector || '',
         state.day
       ]);
@@ -480,45 +484,21 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
     return;
   }
 
-  // 2) إنشاء ورقة العمل
   const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [ { wch: 35 }, { wch: 55 }, { wch: 10 }, { wch: 30 }, { wch: 40 }, { wch: 15 }, { wch: 12 } ];
 
-  // عرض الأعمدة
-  ws['!cols'] = [
-    { wch: 35 },  // القسم
-    { wch: 55 },  // البند
-    { wch: 10 },  // الحالة
-    { wch: 30 },  // ملاحظات
-    { wch: 15 },  // المفتش
-    { wch: 12 }   // التاريخ
-  ];
-
-  // 3) تطبيق التنسيق على كل خلية
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let R = range.s.r; R <= range.e.r; ++R) {
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const cell_address = { c: C, r: R };
       const cell_ref = XLSX.utils.encode_cell(cell_address);
-      
-      // إنشاء الخلية إذا لم تكن موجودة (لضمان ظهور الحدود على الخلايا الفارغة)
       if (!ws[cell_ref]) ws[cell_ref] = { t: 's', v: '' };
 
       const isHeader = (R === 0);
-      
-      // التنسيق الأساسي
       ws[cell_ref].s = {
-        font: { 
-          name: 'Tahoma', 
-          sz: 11, 
-          bold: isHeader,
-          color: isHeader ? { rgb: "FFFFFF" } : { rgb: "000000" }
-        },
+        font: { name: 'Tahoma', sz: 11, bold: isHeader, color: isHeader ? { rgb: "FFFFFF" } : { rgb: "000000" } },
         fill: isHeader ? { patternType: 'solid', fgColor: { rgb: "0F766E" } } : undefined,
-        alignment: { 
-          horizontal: isHeader ? 'center' : 'right', 
-          vertical: 'center', 
-          wrapText: true 
-        },
+        alignment: { horizontal: isHeader ? 'center' : 'right', vertical: 'center', wrapText: true },
         border: {
           top: { style: 'thin', color: { rgb: "CCCCCC" } },
           bottom: { style: 'thin', color: { rgb: "CCCCCC" } },
@@ -528,45 +508,17 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
       };
     }
   }
-
-  // 4) ضبط ارتفاع الصفوف (لضمان ظهور المنتصف رأسيًا)
-  const rowHeights = [];
-  for (let R = 0; R <= range.e.r; ++R) {
-    rowHeights.push({ hpt: R === 0 ? 30 : 28 }); // 30 للعناوين، 28 للبيانات
-  }
-  ws['!rows'] = rowHeights;
-
-  // 5) تجميد الصف الأول
+  
+  ws['!rows'] = Array(range.e.r + 1).fill({ hpt: 28 }); ws['!rows'][0] = { hpt: 30 };
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
-  // 6) تصدير الملف
   const wb = XLSX.utils.book_new();
-  wb.Workbook = { Views: [{ RTL: true }] }; // اتجاه الورقة من اليمين لليسار
+  wb.Workbook = { Views: [{ RTL: true }] };
   XLSX.utils.book_append_sheet(wb, ws, 'التفتيش اليومي');
   XLSX.writeFile(wb, 'تفتيش-' + state.day + '.xlsx');
 });
 
-/* ============ 7) التشغيل ============ */
-(function init(){
-  buildUI();
-  const d = todayStr();
-  dateInput.value = d;
-  loadDay(d);
-  inspEl.value = state.inspector;
-  refreshAll();
-  setSync('البيانات محفوظة على هذا الجهاز');
-  setTimeout(()=> sync(false), 800);
-})();
-
-/* ============ 8) تسجيل Service Worker ============ */
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
-      .then(() => console.log('SW ready'))
-      .catch((err) => console.warn('SW failed', err));
-  });
-}
-/* ============ 9) ميزة تصوير ورفع المخالفات ============ */
+/* ============ 7) ميزة تصوير ورفع المخالفات ============ */
 const fileInput = document.createElement('input');
 fileInput.type = 'file';
 fileInput.accept = 'image/*';
@@ -659,22 +611,18 @@ listEl.addEventListener('click', async (e) => {
     const rec = ensure(id);
     const oldImgUrl = rec.img;
 
-    // 1. مسح الصورة من الذاكرة المحلية والتطبيق
     rec.img = '';
     rec.dirty = true;
     rec.u = Date.now();
     persist();
 
-    // 2. تحديث الواجهة فوراً (إخفاء الصورة)
     itemEl.classList.remove('show-img');
     itemEl.querySelector('.img-preview').src = '';
     itemEl.querySelector('.cam-t').classList.remove('on');
 
-    // 3. مزامنة فورية لمسح الرابط من قاعدة البيانات (الجدول)
     scheduleSync();
     setSync('جارٍ حذف الصورة...');
 
-    // 4. مسح ملف الصورة نفسه من مساحة التخزين في Supabase
     if (oldImgUrl && oldImgUrl.includes('/violations/')) {
       const c = getCfg();
       const filename = oldImgUrl.split('/violations/')[1];
@@ -690,39 +638,27 @@ listEl.addEventListener('click', async (e) => {
     }
   }
 });
-/* ========================================= */
 
-const originalUpdateItem = updateItem;
-updateItem = function(id) {
-  originalUpdateItem(id);
-  const el = listEl.querySelector('.item[data-id="'+id+'"]');
-  if (!el) return;
-  const rec = state.items[id];
-  if (rec && rec.img) {
-    el.classList.add('show-img');
-    el.querySelector('.img-preview').src = rec.img;
-    el.querySelector('.cam-t').classList.add('on');
-  } else {
-    el.classList.remove('show-img');
-    el.querySelector('.cam-t').classList.remove('on');
-  }
-};
+/* ============ 8) التشغيل ============ */
+(function init(){
+  buildUI();
+  const d = todayStr();
+  dateInput.value = d;
+  loadDay(d);
+  inspEl.value = state.inspector;
+  refreshAll();
+  setSync('البيانات محفوظة على هذا الجهاز');
+  setTimeout(()=> sync(false), 800);
+})();
 
-const originalUpdateItem = updateItem;
-updateItem = function(id) {
-  originalUpdateItem(id);
-  const el = listEl.querySelector('.item[data-id="'+id+'"]');
-  if (!el) return;
-  const rec = state.items[id];
-  if (rec && rec.img) {
-    el.classList.add('show-img');
-    el.querySelector('.img-preview').src = rec.img;
-    el.querySelector('.cam-t').classList.add('on');
-  } else {
-    el.classList.remove('show-img');
-    el.querySelector('.cam-t').classList.remove('on');
-  }
-};
+/* ============ 9) تسجيل Service Worker ============ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log('SW ready'))
+      .catch((err) => console.warn('SW failed', err));
+  });
+}
 </script>
 </body>
 </html>
