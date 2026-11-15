@@ -28,7 +28,7 @@ main{padding:0 12px}
 .item{background:var(--card);border-radius:12px;padding:10px 12px;margin:8px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .q{font-size:14.5px;line-height:1.55;margin-bottom:9px}
 .num{display:inline-block;min-width:32px;color:var(--brand);font-weight:800}
-.ans{display:grid;grid-template-columns:1fr 1fr 1fr 42px;gap:6px}
+.ans{display:grid;grid-template-columns:1fr 1fr 1fr 42px 42px;gap:6px}
 .b{border:1px solid var(--line);background:#f8fafc;border-radius:10px;padding:11px 4px;font-size:14px;font-family:inherit;cursor:pointer;color:#334155;font-weight:700}
 .b:active{transform:scale(.97)}
 .b.yes.on{background:var(--yes);border-color:var(--yes);color:#fff}
@@ -53,6 +53,10 @@ main{padding:0 12px}
 #cfgSave{background:#0f766e;color:#fff}
 #cfgClose{background:#e2e8f0;color:#0f172a}
 .hint{font-size:12px;color:#64748b;line-height:1.6;margin-top:14px}
+.b.cam-t{font-size:16px}
+.b.cam-t.on{background:#e0f2fe;border-color:#7dd3fc}
+.img-preview{display:none;width:100%;max-height:150px;object-fit:cover;border-radius:10px;margin-top:9px;border:1px solid var(--line);cursor:pointer}
+.item.show-img .img-preview{display:block}
 </style>
 </head>
 <body>
@@ -210,8 +214,10 @@ function buildUI(){
           '<button class="b no"  data-v="no">لا</button>'+
           '<button class="b na"  data-v="na">لا ينطبق</button>'+
           '<button class="b note-t" title="ملاحظات">📝</button>'+
+          '<button class="b cam-t" title="صورة">📷</button>'+
         '</div>'+
-        '<textarea class="note" placeholder="اكتب ملاحظة..."></textarea>';
+        '<textarea class="note" placeholder="اكتب ملاحظة..."></textarea>'+
+        '<img class="img-preview" src="" onclick="window.open(this.src)">';
       s.appendChild(el);
     });
     frag.appendChild(s);
@@ -393,6 +399,7 @@ async function sync(manual){
           status: l.s || null,
           note: l.n || null,
           inspector: state.inspector || null,
+          image_url: l.img || null, // <--- أضف هذا السطر هنا
           updated_at: new Date(lu || Date.now()).toISOString()
         });
       }
@@ -532,6 +539,102 @@ if ('serviceWorker' in navigator) {
       .catch((err) => console.warn('SW failed', err));
   });
 }
+/* ============ 9) ميزة تصوير ورفع المخالفات ============ */
+const fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.accept = 'image/*';
+fileInput.capture = 'environment'; 
+fileInput.style.display = 'none';
+document.body.appendChild(fileInput);
+
+function compressImage(file, maxWidth = 800, quality = 0.7) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = maxWidth / img.width;
+        canvas.width = maxWidth;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
+      };
+    };
+  });
+}
+
+async function uploadImage(blob, id) {
+  const c = getCfg();
+  const filename = `img_${state.day}_${id}_${Date.now()}.jpg`;
+  const res = await fetch(`${c.url}/storage/v1/object/violations/${filename}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${c.key}`,
+      'apikey': c.key
+    },
+    body: blob
+  });
+  if (!res.ok) throw new Error('فشل رفع الصورة');
+  return `${c.url}/storage/v1/object/public/violations/${filename}`;
+}
+
+let activeItemIdForCam = null;
+listEl.addEventListener('click', (e) => {
+  if (e.target.classList.contains('cam-t')) {
+    activeItemIdForCam = e.target.closest('.item').dataset.id;
+    fileInput.click();
+  }
+});
+
+fileInput.addEventListener('change', async () => {
+  if (!fileInput.files.length) return;
+  const file = fileInput.files[0];
+  const itemEl = listEl.querySelector(`.item[data-id="${activeItemIdForCam}"]`);
+  
+  setSync('جارٍ ضغط الصورة...');
+  const blob = await compressImage(file);
+  
+  setSync('جارٍ رفع الصورة...');
+  try {
+    const imgUrl = await uploadImage(blob, activeItemIdForCam);
+    const rec = ensure(activeItemIdForCam);
+    rec.img = imgUrl;
+    rec.dirty = true;
+    rec.u = Date.now();
+    persist();
+    
+    itemEl.classList.add('show-img');
+    itemEl.querySelector('.img-preview').src = imgUrl;
+    itemEl.querySelector('.cam-t').classList.add('on');
+    
+    setSync('تم رفع الصورة ✓');
+    scheduleSync();
+  } catch (err) {
+    alert('تعذر رفع الصورة. تأكد من إعدادات Supabase.');
+    setSync('فشل رفع الصورة');
+  }
+  fileInput.value = ''; 
+});
+
+const originalUpdateItem = updateItem;
+updateItem = function(id) {
+  originalUpdateItem(id);
+  const el = listEl.querySelector('.item[data-id="'+id+'"]');
+  if (!el) return;
+  const rec = state.items[id];
+  if (rec && rec.img) {
+    el.classList.add('show-img');
+    el.querySelector('.img-preview').src = rec.img;
+    el.querySelector('.cam-t').classList.add('on');
+  } else {
+    el.classList.remove('show-img');
+    el.querySelector('.cam-t').classList.remove('on');
+  }
+};
 </script>
 </body>
 </html>
