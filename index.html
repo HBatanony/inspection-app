@@ -55,8 +55,12 @@ main{padding:0 12px}
 .hint{font-size:12px;color:#64748b;line-height:1.6;margin-top:14px}
 .b.cam-t{font-size:16px}
 .b.cam-t.on{background:#e0f2fe;border-color:#7dd3fc}
-.img-preview{display:none;width:100%;max-height:150px;object-fit:cover;border-radius:10px;margin-top:9px;border:1px solid var(--line);cursor:pointer}
-.item.show-img .img-preview{display:block}
+.img-container { display: none; gap: 10px; align-items: center; margin-top: 9px; }
+.item.show-img .img-container { display: flex; }
+.img-preview { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; transition: transform 0.2s ease; position: relative; z-index: 1; }
+.img-preview:hover { transform: scale(6); z-index: 9999; box-shadow: 0 10px 30px rgba(0,0,0,0.6); transform-origin: top right; }
+.del-img-btn { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
+.del-img-btn:hover { background: #dc2626; color: #fff; }
 </style>
 </head>
 <body>
@@ -217,7 +221,10 @@ function buildUI(){
           '<button class="b cam-t" title="صورة">📷</button>'+
         '</div>'+
         '<textarea class="note" placeholder="اكتب ملاحظة..."></textarea>'+
-        '<img class="img-preview" src="" onclick="window.open(this.src)">';
+        '<div class="img-container">'+
+          '<img class="img-preview" src="" onclick="window.open(this.src)">'+
+          '<button class="del-img-btn" title="حذف الصورة">🗑️</button>'+
+        '</div>';
       s.appendChild(el);
     });
     frag.appendChild(s);
@@ -639,6 +646,67 @@ fileInput.addEventListener('change', async () => {
   }
   fileInput.value = ''; 
 });
+
+/* =========================================
+   الكود الجديد الخاص بزر حذف الصورة (🗑️)
+   ========================================= */
+listEl.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('del-img-btn')) {
+    if(!confirm('هل أنت متأكد من حذف الصورة؟')) return;
+    
+    const itemEl = e.target.closest('.item');
+    const id = itemEl.dataset.id;
+    const rec = ensure(id);
+    const oldImgUrl = rec.img;
+
+    // 1. مسح الصورة من الذاكرة المحلية والتطبيق
+    rec.img = '';
+    rec.dirty = true;
+    rec.u = Date.now();
+    persist();
+
+    // 2. تحديث الواجهة فوراً (إخفاء الصورة)
+    itemEl.classList.remove('show-img');
+    itemEl.querySelector('.img-preview').src = '';
+    itemEl.querySelector('.cam-t').classList.remove('on');
+
+    // 3. مزامنة فورية لمسح الرابط من قاعدة البيانات (الجدول)
+    scheduleSync();
+    setSync('جارٍ حذف الصورة...');
+
+    // 4. مسح ملف الصورة نفسه من مساحة التخزين في Supabase
+    if (oldImgUrl && oldImgUrl.includes('/violations/')) {
+      const c = getCfg();
+      const filename = oldImgUrl.split('/violations/')[1];
+      if (filename) {
+        try {
+          await fetch(`${c.url}/storage/v1/object/violations/${filename}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${c.key}`, 'apikey': c.key }
+          });
+          setSync('تم حذف الصورة نهائيًا ✓');
+        } catch (err) { console.warn('فشل حذف الملف من التخزين', err); }
+      }
+    }
+  }
+});
+/* ========================================= */
+
+const originalUpdateItem = updateItem;
+updateItem = function(id) {
+  originalUpdateItem(id);
+  const el = listEl.querySelector('.item[data-id="'+id+'"]');
+  if (!el) return;
+  const rec = state.items[id];
+  if (rec && rec.img) {
+    el.classList.add('show-img');
+    el.querySelector('.img-preview').src = rec.img;
+    el.querySelector('.cam-t').classList.add('on');
+  } else {
+    el.classList.remove('show-img');
+    el.querySelector('.cam-t').classList.remove('on');
+  }
+};
 
 const originalUpdateItem = updateItem;
 updateItem = function(id) {
